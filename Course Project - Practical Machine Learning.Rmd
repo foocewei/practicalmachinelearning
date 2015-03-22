@@ -1,0 +1,114 @@
+#Practical Machine Learning Course Project
+##Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+##Data
+The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.
+
+Participants performed one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Based on the set of training data, we are to predict the classe for the test data.
+
+##Load Required Libraries
+```{r}
+require(caret)
+require(rpart)
+require(rpart.plot)
+require(randomForest)
+
+#Set seed for reproducibility
+set.seed(8888)
+```
+
+##Load Data and Perform Simple Exploratory Analysis
+```{r}
+## Assumption: training and testing data source files are already in working directory
+#Load csv files, treating missing data as NA
+train <- read.csv("pml-training.csv", na.strings = c("NA", "#DIV/0!", ""))
+test <- read.csv("pml-testing.csv", na.strings = c("NA", "#DIV/0!", ""))
+```
+```{r results='hide'}
+dim(train)
+head(train)
+
+dim(test)
+head(test)
+```
+
+##Clean the Data
+```{r}
+#Remove irrelevant variables: user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp, new_window and num_window (columns 1 to 7)
+train <- train[,-c(1:7)]
+test <- test[,-c(1:7)]
+
+#Remove columns where all values are NA
+train <- train[,colSums(is.na(train)) == 0]
+test <- test[,colSums(is.na(test)) == 0]
+
+#Exclude the variables with near zero variance
+nearzero <- nearZeroVar(train, saveMetrics = TRUE)
+train <- train[, !nearzero$nzv]
+test <- test[, !nearzero$nzv]
+```
+It seems that there are no more columns with near zero variance as all nzv = FALSE
+
+```{r results='hide'}
+dim(train)
+head(train)
+
+dim(test)
+head(test)
+```
+Training dataset has 19622 observations with 53 variables. Test dataset has 20 observations with 53 variables. The columns are the same (except instead of classe there is problem_id for the test data), so now we can start to fit the models.
+
+##Fit the Models
+We will try out Decision Tree and Random Forest and see which is a better fit based on the confusion matrix.
+```{r}
+#Use 80% of the training data to fit the model and test on the remaining 20% training data
+subset <- createDataPartition(y = train$classe, p = 0.8, list = FALSE)
+subTrain <- train[subset, ]
+subTest <- train[-subset, ]
+
+##Model 1: Decision Tree
+modelDT <- rpart(classe ~ ., data = subTrain, method = "class")
+predictDT <- predict(modelDT, subTest, type = "class")
+rpart.plot(modelDT, main = "Decision Tree", extra = 102, under = TRUE, faclen = 0)
+
+#Test results on subTest data set
+confusionMatrix(predictDT, subTest$classe)
+
+##Model 2: Random Forest
+modelRF <- randomForest(classe ~ ., data = subTrain, method = "class")
+predictRF <- predict(modelRF, subTest, type = "class")
+
+#Test results on subTest data set
+confusionMatrix(predictRF, subTest$classe)
+```
+For Decision Tree, the accuracy of the model is 0.7227 with 95% confidence interval between 0.7084 and 0.7366. The out of sample error is 27.73%, which is quite high, so this model is a poor fit.
+
+For Random Forest, the accuracy of the model is 0.9972 with 95% confidence interval between 0.995 and 0.9986. The out of sample error is 0.0028%, which is very low, so this model is a good fit.
+
+So after cross-validation using 80% of the training data as the training set and 20% of the training data as the test set, we can conclude that Random Forest is a better fit, so we will use this model to predict the actual test data for submission.
+
+##Predict the Test Set for Submission
+```{r}
+#Create the model using the full set of training data and predict the test data
+model <- randomForest(classe ~ ., data = train, method = "class")
+prediction <- predict(model, test, type = "class")
+prediction
+
+#Writing output files for submission
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+ 
+pml_write_files(prediction)
+```
